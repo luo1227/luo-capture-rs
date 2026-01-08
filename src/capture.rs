@@ -224,11 +224,13 @@ impl ScreenCapture {
         unsafe { texture.GetDesc(&mut texture_desc) };
 
         println!(
-            "纹理信息 - 格式: {}, 宽度: {}, 高度: {}, 采样数: {}",
+            "纹理信息 - 格式: {}, 宽度: {}, 高度: {}, 采样数: {}, BindFlags: {}, Usage: {}",
             texture_desc.Format.0,
             texture_desc.Width,
             texture_desc.Height,
-            texture_desc.SampleDesc.Count
+            texture_desc.SampleDesc.Count,
+            texture_desc.BindFlags,
+            texture_desc.Usage.0
         );
 
         // 处理多重采样纹理（如果需要）
@@ -241,13 +243,13 @@ impl ScreenCapture {
             texture
         };
 
-        // 创建全屏staging纹理用于CPU读取 - 强制使用BGRA格式
+        // 创建全屏staging纹理用于CPU读取 - 使用与源纹理相同的格式
         let staging_texture_desc = D3D11_TEXTURE2D_DESC {
             Width: texture_desc.Width,
             Height: texture_desc.Height,
             MipLevels: 1,
             ArraySize: 1,
-            Format: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT(87), // BGRA8_UNORM
+            Format: texture_desc.Format, // 使用源纹理的原始格式
             SampleDesc: DXGI_SAMPLE_DESC {
                 Count: 1,
                 Quality: 0,
@@ -276,9 +278,16 @@ impl ScreenCapture {
 
         // 复制整个纹理数据到staging纹理
         unsafe {
-            resources
-                .device_context
-                .CopyResource(&staging_texture, &source_texture);
+            resources.device_context.CopySubresourceRegion(
+                &staging_texture,
+                0,
+                0,
+                0,
+                0,
+                &source_texture,
+                0,
+                None,
+            );
         }
 
         // 强制同步 - 等待GPU完成
