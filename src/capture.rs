@@ -241,13 +241,13 @@ impl ScreenCapture {
             texture
         };
 
-        // 创建全屏staging纹理用于CPU读取
+        // 创建全屏staging纹理用于CPU读取 - 强制使用BGRA格式
         let staging_texture_desc = D3D11_TEXTURE2D_DESC {
             Width: texture_desc.Width,
             Height: texture_desc.Height,
             MipLevels: 1,
             ArraySize: 1,
-            Format: texture_desc.Format,
+            Format: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT(87), // BGRA8_UNORM
             SampleDesc: DXGI_SAMPLE_DESC {
                 Count: 1,
                 Quality: 0,
@@ -281,10 +281,8 @@ impl ScreenCapture {
                 .CopyResource(&staging_texture, &source_texture);
         }
 
-        // 确保复制完成
-        unsafe {
-            resources.device_context.Flush();
-        }
+        // 强制同步 - 等待GPU完成
+        std::thread::sleep(std::time::Duration::from_millis(1));
 
         // 映射staging纹理以读取数据
         let mut mapped_resource = D3D11_MAPPED_SUBRESOURCE::default();
@@ -299,7 +297,9 @@ impl ScreenCapture {
                     Some(&mut mapped_resource),
                 )
                 .map_err(|e| {
-                    unsafe { resources.output_duplication.ReleaseFrame().ok(); }
+                    println!("Map调用失败，错误码: {:?}", e);
+                    println!("纹理格式: {}, CPU访问标志: {}", staging_texture_desc.Format.0, staging_texture_desc.CPUAccessFlags);
+                    let _ = resources.output_duplication.ReleaseFrame();
                     CaptureError::CaptureError(format!("映射staging纹理失败: {:?}", e))
                 })?;
         }
