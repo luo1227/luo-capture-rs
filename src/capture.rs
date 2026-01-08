@@ -83,7 +83,7 @@ impl ScreenCapture {
 
     /// 初始化DXGI资源
     fn initialize_dxgi(&mut self) -> CaptureResult<DxgiResources> {
-        // 创建D3D11设备
+        // 创建D3D11设备 - 确保支持BGRA格式
         let mut device: Option<ID3D11Device> = None;
         let mut device_context: Option<ID3D11DeviceContext> = None;
         let mut feature_level = D3D_FEATURE_LEVEL::default();
@@ -94,7 +94,10 @@ impl ScreenCapture {
                 D3D_DRIVER_TYPE(1), // HARDWARE
                 None,
                 D3D11_CREATE_DEVICE_FLAG(0x20),     // BGRA_SUPPORT
-                Some(&[D3D_FEATURE_LEVEL(0xb000)]), // LEVEL_11_0
+                Some(&[
+                    D3D_FEATURE_LEVEL(0xb000), // LEVEL_11_0
+                    D3D_FEATURE_LEVEL(0xa000), // LEVEL_10_0
+                ]),
                 D3D11_SDK_VERSION,
                 Some(&mut device),
                 Some(&mut feature_level),
@@ -194,7 +197,7 @@ impl ScreenCapture {
             resources
                 .output_duplication
                 .AcquireNextFrame(
-                    100, // 超时时间（毫秒）
+                    1000, // 超时时间（毫秒）- 增加到1秒
                     &mut frame_info,
                     &mut desktop_resource,
                 )
@@ -205,11 +208,6 @@ impl ScreenCapture {
         let desktop_resource = desktop_resource
             .ok_or_else(|| CaptureError::CaptureError("无法获取桌面资源".to_string()))?;
 
-        // 检查帧信息是否有效 (暂时注释掉，可能过于严格)
-        // if frame_info.LastPresentTime == 0 && frame_info.AccumulatedFrames == 0 {
-        //     return Err(CaptureError::CaptureError("获取到无效的帧信息".to_string()));
-        // }
-
         // 转换为纹理
         let texture: ID3D11Texture2D = desktop_resource
             .cast()
@@ -219,20 +217,66 @@ impl ScreenCapture {
         let mut texture_desc = D3D11_TEXTURE2D_DESC::default();
         unsafe { texture.GetDesc(&mut texture_desc) };
 
-        // 调试信息
         println!(
-            "纹理格式: {}, 宽度: {}, 高度: {}, 采样数: {}, MiscFlags: {}, Usage: {}, CPUAccessFlags: {}, BindFlags: {}",
+            "纹理信息 - 格式: {}, 宽度: {}, 高度: {}, 采样数: {}",
             texture_desc.Format.0,
             texture_desc.Width,
             texture_desc.Height,
-            texture_desc.SampleDesc.Count,
-            texture_desc.MiscFlags,
-            texture_desc.Usage.0,
-            texture_desc.CPUAccessFlags,
-            texture_desc.BindFlags
+            texture_desc.SampleDesc.Count
         );
 
-        // 创建staging纹理 - 使用原始格式
+        // 处理多重采样纹理
+        let final_texture = if texture_desc.SampleDesc.Count > 1 {
+            // 创建单采样纹理用于resolve
+            let resolve_texture_desc = D3D11_TEXTURE2D_DESC {
+                Width: texture_desc.Width,
+                Height: texture_desc.Height,
+                MipLevels: 1,
+                ArraySize: 1,
+                Format: texture_desc.Format,
+                SampleDesc: DXGI_SAMPLE_DESC {
+                    Count: 1,
+                    Quality: 0,
+                },
+                Usage: D3D11_USAGE(0), // DEFAULT
+                BindFlags: 0x8,        // RENDER_TARGET
+                CPUAccessFlags: 0,
+                MiscFlags: 0,
+            };
+
+            let mut resolve_texture: Option<ID3D11Texture2D> = None;
+            unsafe {
+                resources
+                    .device
+                    .CreateTexture2D(&resolve_texture_desc, None, Some(&mut resolve_texture))
+                    .map_err(|e| {
+                        let _ = resources.output_duplication.ReleaseFrame();
+                        CaptureError::CaptureError(format!("创建resolve纹理失败: {:?}", e))
+                    })?;
+            }
+
+            let resolve_texture = resolve_texture.ok_or_else(|| {
+                let _ = unsafe { resources.output_duplication.ReleaseFrame() };
+                CaptureError::CaptureError("无法创建resolve纹理".to_string())
+            })?;
+
+            // Resolve多重采样纹理
+            unsafe {
+                resources.device_context.ResolveSubresource(
+                    &resolve_texture,
+                    0,
+                    &texture,
+                    0,
+                    texture_desc.Format,
+                );
+            }
+
+            resolve_texture
+        } else {
+            texture
+        };
+
+        // 创建staging纹理用于CPU读取
         let staging_texture_desc = D3D11_TEXTURE2D_DESC {
             Width: texture_desc.Width,
             Height: texture_desc.Height,
@@ -255,24 +299,21 @@ impl ScreenCapture {
                 .device
                 .CreateTexture2D(&staging_texture_desc, None, Some(&mut staging_texture))
                 .map_err(|e| {
-                    println!("CreateTexture2D失败，错误码: {:?}", e);
                     let _ = resources.output_duplication.ReleaseFrame();
-                    CaptureError::CaptureError(format!("创建暂存纹理失败: {:?}", e))
+                    CaptureError::CaptureError(format!("创建staging纹理失败: {:?}", e))
                 })?;
         }
 
         let staging_texture = staging_texture.ok_or_else(|| {
             let _ = unsafe { resources.output_duplication.ReleaseFrame() };
-            CaptureError::CaptureError("无法创建暂存纹理".to_string())
+            CaptureError::CaptureError("无法创建staging纹理".to_string())
         })?;
 
-        println!("暂存纹理创建成功，开始复制数据...");
-
-        // 复制纹理数据
+        // 复制纹理数据到staging纹理
         unsafe {
             resources
                 .device_context
-                .CopyResource(&staging_texture, &texture);
+                .CopyResource(&staging_texture, &final_texture);
         }
 
         // 确保复制完成
@@ -280,20 +321,7 @@ impl ScreenCapture {
             resources.device_context.Flush();
         }
 
-        // 等待GPU完成复制操作
-        std::thread::sleep(std::time::Duration::from_millis(1));
-
-        // 确保复制完成
-        unsafe {
-            resources.device_context.Flush();
-        }
-
-        // 等待GPU完成复制操作 - 使用更长的等待时间
-        std::thread::sleep(std::time::Duration::from_millis(1));
-
-        println!("纹理复制完成，开始映射...");
-
-        // 映射纹理以读取数据
+        // 映射staging纹理以读取数据
         let mut mapped_resource = D3D11_MAPPED_SUBRESOURCE::default();
         unsafe {
             resources
@@ -306,20 +334,16 @@ impl ScreenCapture {
                     Some(&mut mapped_resource),
                 )
                 .map_err(|e| {
-                    println!("Map调用失败，错误码: {:?}", e);
-                    // 即使映射失败，也要尝试释放帧
                     let _ = resources.output_duplication.ReleaseFrame();
-                    CaptureError::CaptureError(format!("映射纹理失败: {:?}", e))
+                    CaptureError::CaptureError(format!("映射staging纹理失败: {:?}", e))
                 })?;
         }
 
-        println!("纹理映射成功，RowPitch: {}", mapped_resource.RowPitch);
-
-        // 计算数据大小
+        // 计算数据大小并复制
         let row_pitch = mapped_resource.RowPitch as usize;
-        let total_size = (texture_desc.Height as usize) * row_pitch;
+        let height = texture_desc.Height as usize;
+        let total_size = height * row_pitch;
 
-        // 复制数据
         let mut data = vec![0u8; total_size];
         unsafe {
             std::ptr::copy_nonoverlapping(
@@ -336,9 +360,14 @@ impl ScreenCapture {
 
         // 释放帧
         unsafe {
-            resources.output_duplication.ReleaseFrame().ok(); // 忽略错误
+            resources.output_duplication.ReleaseFrame().ok();
         }
 
+        // 更新屏幕尺寸（以防万一）
+        self.width = texture_desc.Width;
+        self.height = texture_desc.Height;
+
+        println!("DXGI捕获成功，数据大小: {} bytes", data.len());
         Ok(data)
     }
 
