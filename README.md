@@ -1,37 +1,37 @@
 # luo-capture-rs
 
-A high-performance screen capture module using DXGI technology for Windows platforms.
+一个使用DXGI技术的高性能屏幕捕获模块，专为Windows平台设计。
 
-## Features
+## 特性
 
-- **High Performance**: Optimized for 1ms frame capture (theoretical)
-- **DXGI Technology**: Uses DirectX Graphics Infrastructure for efficient screen capture
-- **Region Capture**: Capture specific screen regions instead of full screen
-- **Synchronous and Asynchronous APIs**: Both sync and async interfaces available
-- **Thread-Safe**: Safe to use across multiple threads
-- **Error Handling**: Comprehensive error handling with custom error types
+- **高性能**: 针对1ms帧捕获进行了优化（理论值）
+- **DXGI技术**: 使用DirectX Graphics Infrastructure实现高效屏幕捕获
+- **区域捕获**: 捕获指定的屏幕区域而非全屏
+- **同步和异步API**: 同时提供同步和异步接口
+- **线程安全**: 可安全地在多个线程中使用
+- **错误处理**: 全面的错误处理和自定义错误类型
 
-## Installation
+## 安装
 
-Add this to your `Cargo.toml`:
+在您的 `Cargo.toml` 中添加以下内容：
 
 ```toml
 [dependencies]
 luo-capture-rs = "0.1.0"
 ```
 
-## Usage
+## 使用方法
 
-### Basic Synchronous Capture
+### 基本同步捕获
 
 ```rust
 use luo_capture_rs::capture::*;
 
 fn main() {
-    // Initialize the capture module
-    let mut capture = init().expect("Failed to initialize capture");
+    // 初始化捕获模块
+    let mut capture = init().expect("初始化捕获失败");
 
-    // Define a capture region (x, y, width, height)
+    // 定义捕获区域 (x, y, width, height)
     let region = CaptureRegion {
         x: 0,
         y: 0,
@@ -39,28 +39,28 @@ fn main() {
         height: 600,
     };
 
-    // Capture the region
-    match capture.capture(region) {
+    // 捕获该区域
+    match capture.capture(region, None) {
         Ok(capture_data) => {
-            println!("Captured {}x{} image with {} bytes of data", 
+            println!("成功捕获 {}x{} 图像，包含 {} 字节数据",
                      capture_data.width, capture_data.height, capture_data.data.len());
         },
-        Err(e) => eprintln!("Capture failed: {}", e),
+        Err(e) => eprintln!("捕获失败: {}", e),
     }
 }
 ```
 
-### Asynchronous Capture
+### 异步捕获
 
 ```rust
 use luo_capture_rs::capture::*;
 
 #[tokio::main]
 async fn main() {
-    // Initialize the capture module asynchronously
-    let async_capture = init_async().await.expect("Failed to initialize async capture");
+    // 异步初始化捕获模块
+    let async_capture = init_async().await.expect("异步初始化捕获失败");
 
-    // Define a capture region
+    // 定义捕获区域
     let region = CaptureRegion {
         x: 0,
         y: 0,
@@ -68,31 +68,31 @@ async fn main() {
         height: 600,
     };
 
-    // Capture the region asynchronously
-    match async_capture.capture(region).await {
+    // 异步捕获该区域
+    match async_capture.capture(region, None).await {
         Ok(capture_data) => {
-            println!("Captured {}x{} image with {} bytes of data", 
+            println!("成功捕获 {}x{} 图像，包含 {} 字节数据",
                      capture_data.width, capture_data.height, capture_data.data.len());
         },
-        Err(e) => eprintln!("Capture failed: {}", e),
+        Err(e) => eprintln!("捕获失败: {}", e),
     }
 }
 ```
 
-### Timing Example
+### 计时示例
 
 ```rust
 use luo_capture_rs::capture::*;
 use std::time::Instant;
 
 fn main() {
-    // Measure initialization time
+    // 测量初始化时间
     let start_time = Instant::now();
-    let mut capture = init().expect("Failed to initialize capture");
+    let mut capture = init().expect("初始化捕获失败");
     let init_duration = start_time.elapsed();
-    println!("Initialization took: {:.3}ms", init_duration.as_secs_f64() * 1000.0);
+    println!("初始化耗时: {:.3}ms", init_duration.as_secs_f64() * 1000.0);
 
-    // Define a capture region
+    // 定义捕获区域
     let region = CaptureRegion {
         x: 0,
         y: 0,
@@ -100,73 +100,108 @@ fn main() {
         height: 600,
     };
 
-    // Measure capture time
+    // 测量捕获时间
     let start_time = Instant::now();
-    match capture.capture(region) {
+    match capture.capture(region, None) {
         Ok(capture_data) => {
             let capture_duration = start_time.elapsed();
-            println!("Capture took: {:.3}ms", capture_duration.as_secs_f64() * 1000.0);
-            println!("Captured {}x{} image with {} bytes of data", 
+            println!("捕获耗时: {:.3}ms", capture_duration.as_secs_f64() * 1000.0);
+            println!("成功捕获 {}x{} 图像，包含 {} 字节数据",
                      capture_data.width, capture_data.height, capture_data.data.len());
         },
-        Err(e) => eprintln!("Capture failed: {}", e),
+        Err(e) => eprintln!("捕获失败: {}", e),
     }
 }
 ```
 
-## API Overview
+### PNG保存功能
 
-### Core Types
+```rust
+use luo_capture_rs::capture::*;
 
-- `CaptureRegion`: Defines the screen region to capture (x, y, width, height)
-- `CaptureData`: Contains captured image data, dimensions, and timestamp
-- `ScreenCapture`: Main capture interface
-- `AsyncScreenCapture`: Async wrapper for non-blocking operations
+fn main() {
+    let mut capture = init().expect("初始化捕获失败");
 
-### Main Functions
+    let region = CaptureRegion {
+        x: 0,
+        y: 0,
+        width: 800,
+        height: 600,
+    };
 
-- `init()`: Initialize the capture module synchronously
-- `init_async()`: Initialize the capture module asynchronously
-- `capture()`: Capture a screen region synchronously
-- `capture_async()`: Capture a screen region asynchronously
+    // 捕获并保存为PNG文件
+    match capture.capture(region, Some("screenshot.png")) {
+        Ok(capture_data) => {
+            println!("成功捕获并保存 {}x{} 图像到 screenshot.png",
+                     capture_data.width, capture_data.height);
+        },
+        Err(e) => eprintln!("捕获失败: {}", e),
+    }
 
-## Error Handling
+    // 只捕获不保存（传递None）
+    match capture.capture(region, None) {
+        Ok(capture_data) => {
+            println!("成功捕获 {}x{} 图像（不保存到文件）",
+                     capture_data.width, capture_data.height);
+        },
+        Err(e) => eprintln!("捕获失败: {}", e),
+    }
+}
+```
 
-The module provides comprehensive error handling through the `CaptureError` enum:
+## API 概览
 
-- `InitializationError`: Errors during initialization
-- `CaptureError`: Errors during capture operations
-- `InvalidRegion`: Invalid capture region parameters
-- `ResourceError`: Resource allocation or management errors
+### 核心类型
 
-## Performance Notes
+- `CaptureRegion`: 定义要捕获的屏幕区域 (x, y, width, height)
+- `CaptureData`: 包含捕获的图像数据、尺寸和时间戳
+- `ScreenCapture`: 主要的捕获接口
+- `AsyncScreenCapture`: 用于非阻塞操作的异步包装器
 
-- The capture module is designed for high-performance scenarios
-- Region-based capture reduces memory usage and processing time
-- Asynchronous API allows non-blocking operations
-- Proper resource management prevents memory leaks
+### 主要函数
 
-## Platform Support
+- `init()`: 同步初始化捕获模块
+- `init_async()`: 异步初始化捕获模块
+- `capture()`: 同步捕获屏幕区域（支持可选的PNG保存）
+- `capture_async()`: 异步捕获屏幕区域（支持可选的PNG保存）
 
-Currently supports Windows platforms with DXGI support. The implementation uses DirectX Graphics Infrastructure for optimal performance.
+## 错误处理
 
-## Contributing
+该模块通过 `CaptureError` 枚举提供全面的错误处理：
 
-Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
+- `InitializationError`: 初始化过程中的错误
+- `CaptureError`: 捕获操作过程中的错误
+- `InvalidRegion`: 无效的捕获区域参数
+- `ResourceError`: 资源分配或管理错误
 
-## License
+## 性能说明
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+- 该捕获模块专为高性能场景设计
+- 基于区域的捕获减少内存使用和处理时间
+- 异步API允许非阻塞操作
+- 适当的资源管理防止内存泄漏
 
-## Development
+## 平台支持
 
-To run the examples:
+目前支持具有DXGI支持的Windows平台。该实现使用DirectX Graphics Infrastructure以获得最佳性能。
+
+## 贡献
+
+欢迎贡献！请随时提交拉取请求。对于重大更改，请先打开一个问题来讨论您想要更改的内容。
+
+## 许可证
+
+本项目采用MIT许可证授权 - 有关详细信息，请参阅LICENSE文件。
+
+## 开发
+
+运行示例：
 
 ```bash
 cargo run --example usage
 ```
 
-To run tests:
+运行测试：
 
 ```bash
 cargo test
