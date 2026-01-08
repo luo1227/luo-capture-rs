@@ -14,5 +14,5 @@ categories = ["graphics", "multimedia::images", "os::windows-apis"]
 
 [dependencies]
 image = "0.24"
-windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Graphics_Dxgi", "Win32_Graphics_Direct3D11", "Win32_Graphics_Gdi", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Direct3D"] }
+windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Graphics_Dxgi", "Win32_Graphics_Direct3D11", "Win32_Graphics_Gdi", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Direct3D", "Win32_UI_WindowsAndMessaging"] }
 windows-core = "0.58"

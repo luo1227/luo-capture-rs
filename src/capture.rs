@@ -1,4 +1,5 @@
 use std::time::Instant;
+use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Direct3D::{D3D_DRIVER_TYPE, D3D_FEATURE_LEVEL};
 use windows::Win32::Graphics::Direct3D11::{
     D3D11_CREATE_DEVICE_FLAG, D3D11_MAP, D3D11_MAPPED_SUBRESOURCE, D3D11_SDK_VERSION,
@@ -10,6 +11,11 @@ use windows::Win32::Graphics::Dxgi::{
     DXGI_OUTDUPL_FRAME_INFO, IDXGIAdapter, IDXGIDevice, IDXGIOutput, IDXGIOutput1,
     IDXGIOutputDuplication, IDXGIResource,
 };
+use windows::Win32::Graphics::Gdi::{
+    BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC,
+    DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDC, ReleaseDC, SRCCOPY, SelectObject,
+};
+use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
 use windows_core::Interface;
 
 /// 捕获区域结构体
@@ -68,6 +74,7 @@ pub struct ScreenCapture {
     width: u32,
     height: u32,
     dxgi_resources: Option<DxgiResources>,
+    use_gdi_fallback: bool, // 是否使用GDI备选方案
 }
 
 impl ScreenCapture {
@@ -78,6 +85,7 @@ impl ScreenCapture {
             width: 0,
             height: 0,
             dxgi_resources: None,
+            use_gdi_fallback: false,
         }
     }
 
@@ -154,25 +162,166 @@ impl ScreenCapture {
     }
 
     /// 初始化捕获器
-    /// 使用DXGI技术进行高性能屏幕捕获
+    /// 优先使用DXGI技术，失败时自动使用GDI备选方案
     pub fn init(&mut self) -> CaptureResult<()> {
         if self.is_initialized {
             return Ok(());
         }
 
-        let dxgi_resources = self.initialize_dxgi()?;
-        self.dxgi_resources = Some(dxgi_resources);
+        // 首先尝试DXGI初始化
+        match self.initialize_dxgi() {
+            Ok(dxgi_resources) => {
+                self.dxgi_resources = Some(dxgi_resources);
+                self.use_gdi_fallback = false;
+                println!("DXGI初始化成功");
+            }
+            Err(e) => {
+                println!("DXGI初始化失败: {}，使用GDI备选方案", e);
+                self.use_gdi_fallback = true;
+                // 获取屏幕尺寸用于GDI捕获
+                self.initialize_gdi_dimensions()?;
+            }
+        }
+
         self.is_initialized = true;
+        Ok(())
+    }
+
+    /// 检查并重新初始化DXGI资源（如果需要）
+    fn ensure_dxgi_resources(&mut self) -> CaptureResult<()> {
+        if self.dxgi_resources.is_none() && !self.use_gdi_fallback {
+            self.is_initialized = false;
+            self.init()?;
+        }
+        Ok(())
+    }
+
+    /// 初始化GDI屏幕尺寸信息
+    fn initialize_gdi_dimensions(&mut self) -> CaptureResult<()> {
+        unsafe {
+            self.width = GetSystemMetrics(SM_CXSCREEN) as u32;
+            self.height = GetSystemMetrics(SM_CYSCREEN) as u32;
+        }
 
         Ok(())
     }
 
+    /// 使用GDI进行屏幕捕获（备选方案）
+    fn capture_with_gdi(&self, region: CaptureRegion) -> CaptureResult<Vec<u8>> {
+        unsafe {
+            // 获取屏幕DC
+            let screen_dc = GetDC(HWND(std::ptr::null_mut()));
+            if screen_dc.is_invalid() {
+                return Err(CaptureError::CaptureError("无法获取屏幕DC".to_string()));
+            }
+
+            // 创建兼容的DC
+            let memory_dc = CreateCompatibleDC(screen_dc);
+            if memory_dc.is_invalid() {
+                let _ = ReleaseDC(HWND(std::ptr::null_mut()), screen_dc);
+                return Err(CaptureError::CaptureError("无法创建内存DC".to_string()));
+            }
+
+            // 创建兼容的位图
+            let bitmap =
+                CreateCompatibleBitmap(screen_dc, region.width as i32, region.height as i32);
+            if bitmap.is_invalid() {
+                let _ = DeleteDC(memory_dc);
+                let _ = ReleaseDC(HWND(std::ptr::null_mut()), screen_dc);
+                return Err(CaptureError::CaptureError("无法创建位图".to_string()));
+            }
+
+            // 选择位图到DC
+            let old_bitmap = SelectObject(memory_dc, bitmap);
+
+            // 执行BitBlt复制屏幕内容
+            let result = BitBlt(
+                memory_dc,
+                0,
+                0,
+                region.width as i32,
+                region.height as i32,
+                screen_dc,
+                region.x,
+                region.y,
+                SRCCOPY,
+            );
+
+            if result.is_err() {
+                let _ = SelectObject(memory_dc, old_bitmap);
+                let _ = DeleteObject(bitmap);
+                let _ = DeleteDC(memory_dc);
+                let _ = ReleaseDC(HWND(std::ptr::null_mut()), screen_dc);
+                return Err(CaptureError::CaptureError("BitBlt操作失败".to_string()));
+            }
+
+            // 获取位图信息
+            let mut bitmap_info = BITMAPINFO {
+                bmiHeader: BITMAPINFOHEADER {
+                    biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                    biWidth: region.width as i32,
+                    biHeight: -(region.height as i32), // 负数表示从上到下
+                    biPlanes: 1,
+                    biBitCount: 32,
+                    biCompression: BI_RGB.0,
+                    biSizeImage: 0,
+                    biXPelsPerMeter: 0,
+                    biYPelsPerMeter: 0,
+                    biClrUsed: 0,
+                    biClrImportant: 0,
+                },
+                bmiColors: [Default::default(); 1],
+            };
+
+            // 分配缓冲区
+            let data_size = (region.width * region.height * 4) as usize;
+            let mut data = vec![0u8; data_size];
+
+            // 获取位图数据
+            let bytes_copied = windows::Win32::Graphics::Gdi::GetDIBits(
+                memory_dc,
+                bitmap,
+                0,
+                region.height,
+                Some(data.as_mut_ptr() as *mut _),
+                &mut bitmap_info,
+                DIB_RGB_COLORS,
+            );
+
+            // 清理资源
+            let _ = SelectObject(memory_dc, old_bitmap);
+            let _ = DeleteObject(bitmap);
+            let _ = DeleteDC(memory_dc);
+            let _ = ReleaseDC(HWND(std::ptr::null_mut()), screen_dc);
+
+            if bytes_copied == 0 {
+                return Err(CaptureError::CaptureError("获取位图数据失败".to_string()));
+            }
+
+            // BGRA转换为RGBA（Windows使用BGRA，image crate需要RGBA）
+            for chunk in data.chunks_exact_mut(4) {
+                let b = chunk[0];
+                let g = chunk[1];
+                let r = chunk[2];
+                let a = chunk[3];
+                chunk[0] = r;
+                chunk[1] = g;
+                chunk[2] = b;
+                chunk[3] = a;
+            }
+
+            Ok(data)
+        }
+    }
+
     /// 执行DXGI屏幕捕获
     fn capture_frame(&mut self) -> CaptureResult<Vec<u8>> {
-        let resources = self
-            .dxgi_resources
-            .as_ref()
-            .ok_or_else(|| CaptureError::CaptureError("DXGI资源未初始化".to_string()))?;
+        // 如果DXGI资源不存在或失效，尝试重新初始化
+        if self.dxgi_resources.is_none() {
+            return Err(CaptureError::CaptureError("DXGI资源未初始化".to_string()));
+        }
+
+        let resources = self.dxgi_resources.as_ref().unwrap();
 
         // 获取桌面帧
         let mut frame_info = DXGI_OUTDUPL_FRAME_INFO::default();
@@ -207,15 +356,25 @@ impl ScreenCapture {
         let mut texture_desc = D3D11_TEXTURE2D_DESC::default();
         unsafe { texture.GetDesc(&mut texture_desc) };
 
-        // 创建可映射的纹理用于CPU访问
+        // 调试信息
+        println!(
+            "纹理格式: {}, 宽度: {}, 高度: {}, 采样数: {}",
+            texture_desc.Format.0,
+            texture_desc.Width,
+            texture_desc.Height,
+            texture_desc.SampleDesc.Count
+        );
+
+        // 使用源纹理的原始格式创建staging纹理
+        // 注意：staging纹理不能是多重采样的，所以强制使用Count=1
         let staging_texture_desc = D3D11_TEXTURE2D_DESC {
             Width: texture_desc.Width,
             Height: texture_desc.Height,
             MipLevels: 1,
             ArraySize: 1,
-            Format: texture_desc.Format,
+            Format: texture_desc.Format, // 使用原始格式
             SampleDesc: DXGI_SAMPLE_DESC {
-                Count: 1,
+                Count: 1, // staging纹理必须是非多重采样的
                 Quality: 0,
             },
             Usage: D3D11_USAGE(3), // STAGING
@@ -229,11 +388,18 @@ impl ScreenCapture {
             resources
                 .device
                 .CreateTexture2D(&staging_texture_desc, None, Some(&mut staging_texture))
-                .map_err(|e| CaptureError::CaptureError(format!("创建暂存纹理失败: {:?}", e)))?;
+                .map_err(|e| {
+                    let _ = unsafe { resources.output_duplication.ReleaseFrame() };
+                    CaptureError::CaptureError(format!("创建暂存纹理失败: {:?}", e))
+                })?;
         }
 
-        let staging_texture = staging_texture
-            .ok_or_else(|| CaptureError::CaptureError("无法创建暂存纹理".to_string()))?;
+        let staging_texture = staging_texture.ok_or_else(|| {
+            let _ = unsafe { resources.output_duplication.ReleaseFrame() };
+            CaptureError::CaptureError("无法创建暂存纹理".to_string())
+        })?;
+
+        println!("暂存纹理创建成功，开始复制数据...");
 
         // 复制纹理数据
         unsafe {
@@ -241,6 +407,13 @@ impl ScreenCapture {
                 .device_context
                 .CopyResource(&staging_texture, &texture);
         }
+
+        // 确保复制完成
+        unsafe {
+            resources.device_context.Flush();
+        }
+
+        println!("纹理复制完成，开始映射...");
 
         // 映射纹理以读取数据
         let mut mapped_resource = D3D11_MAPPED_SUBRESOURCE::default();
@@ -254,7 +427,11 @@ impl ScreenCapture {
                     0,
                     Some(&mut mapped_resource),
                 )
-                .map_err(|e| CaptureError::CaptureError(format!("映射纹理失败: {:?}", e)))?;
+                .map_err(|e| {
+                    // 即使映射失败，也要尝试释放帧
+                    let _ = unsafe { resources.output_duplication.ReleaseFrame() };
+                    CaptureError::CaptureError(format!("映射纹理失败: {:?}", e))
+                })?;
         }
 
         // 计算数据大小
@@ -292,11 +469,8 @@ impl ScreenCapture {
         region: CaptureRegion,
         save_path: Option<&str>,
     ) -> CaptureResult<CaptureData> {
-        if !self.is_initialized {
-            return Err(CaptureError::CaptureError(
-                "捕获器未初始化。请先调用init()方法。".to_string(),
-            ));
-        }
+        // 确保DXGI资源可用
+        self.ensure_dxgi_resources()?;
 
         // 验证区域参数
         if region.x < 0 || region.y < 0 || region.width == 0 || region.height == 0 {
@@ -309,8 +483,33 @@ impl ScreenCapture {
             return Err(CaptureError::InvalidRegion);
         }
 
-        // 使用DXGI捕获整个屏幕
-        let full_screen_data = self.capture_frame()?;
+        // 根据初始化方式选择捕获方法
+        let full_screen_data = if self.use_gdi_fallback {
+            // 使用GDI备选方案
+            println!("使用GDI捕获屏幕区域: {:?}", region);
+            self.capture_with_gdi(CaptureRegion {
+                x: 0,
+                y: 0,
+                width: self.width,
+                height: self.height,
+            })?
+        } else {
+            // 使用DXGI捕获，失败时尝试重新初始化
+            match self.capture_frame() {
+                Ok(data) => data,
+                Err(e) => {
+                    // 如果DXGI捕获失败，切换到GDI备选方案
+                    println!("DXGI捕获失败，切换到GDI备选方案: {}", e);
+                    self.use_gdi_fallback = true;
+                    self.capture_with_gdi(CaptureRegion {
+                        x: 0,
+                        y: 0,
+                        width: self.width,
+                        height: self.height,
+                    })?
+                }
+            }
+        };
 
         // 从全屏数据中提取指定区域
         let bytes_per_pixel = 4; // BGRA格式
@@ -376,17 +575,16 @@ impl ScreenCapture {
     }
 }
 
-impl Drop for ScreenCapture {
-    fn drop(&mut self) {
-        // DXGI资源会在离开作用域时自动释放
-        // 这里可以添加额外的清理逻辑如果需要
-        self.dxgi_resources = None;
-    }
-}
-
 impl Default for ScreenCapture {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Drop for ScreenCapture {
+    fn drop(&mut self) {
+        // DXGI资源会在离开作用域时自动释放
+        // GDI资源在每次捕获后都会被清理
     }
 }
 
