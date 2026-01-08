@@ -1,14 +1,14 @@
 use std::time::Instant;
 use windows::Win32::Graphics::Direct3D::{D3D_DRIVER_TYPE, D3D_FEATURE_LEVEL};
 use windows::Win32::Graphics::Direct3D11::{
-    D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
-    D3D11_CREATE_DEVICE_FLAG, D3D11_MAP, D3D11_MAPPED_SUBRESOURCE,
-    D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC, D3D11_USAGE,
+    D3D11_CREATE_DEVICE_FLAG, D3D11_MAP, D3D11_MAPPED_SUBRESOURCE, D3D11_SDK_VERSION,
+    D3D11_TEXTURE2D_DESC, D3D11_USAGE, D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext,
+    ID3D11Texture2D,
 };
 use windows::Win32::Graphics::Dxgi::Common::DXGI_SAMPLE_DESC;
 use windows::Win32::Graphics::Dxgi::{
-    DXGI_OUTDUPL_FRAME_INFO, IDXGIAdapter, IDXGIDevice, IDXGIOutput,
-    IDXGIOutput1, IDXGIOutputDuplication, IDXGIResource,
+    DXGI_OUTDUPL_FRAME_INFO, IDXGIAdapter, IDXGIDevice, IDXGIOutput, IDXGIOutput1,
+    IDXGIOutputDuplication, IDXGIResource,
 };
 use windows_core::Interface;
 
@@ -180,8 +180,8 @@ impl ScreenCapture {
         Ok(())
     }
 
-    /// 执行DXGI屏幕捕获指定区域
-    fn capture_frame(&mut self, region: CaptureRegion) -> CaptureResult<Vec<u8>> {
+    /// 执行DXGI屏幕捕获全屏数据
+    fn capture_fullscreen(&mut self) -> CaptureResult<Vec<u8>> {
         // 如果DXGI资源不存在或失效，尝试重新初始化
         if self.dxgi_resources.is_none() {
             return Err(CaptureError::CaptureError("DXGI资源未初始化".to_string()));
@@ -205,19 +205,20 @@ impl ScreenCapture {
         }
 
         // 获取桌面资源（纹理）
-        let desktop_resource = desktop_resource
-            .ok_or_else(|| {
-                unsafe { resources.output_duplication.ReleaseFrame().ok(); }
-                CaptureError::CaptureError("无法获取桌面资源".to_string())
-            })?;
+        let desktop_resource = desktop_resource.ok_or_else(|| {
+            unsafe {
+                resources.output_duplication.ReleaseFrame().ok();
+            }
+            CaptureError::CaptureError("无法获取桌面资源".to_string())
+        })?;
 
         // 转换为纹理
-        let texture: ID3D11Texture2D = desktop_resource
-            .cast()
-            .map_err(|e| {
-                unsafe { resources.output_duplication.ReleaseFrame().ok(); }
-                CaptureError::CaptureError(format!("转换纹理失败: {:?}", e))
-            })?;
+        let texture: ID3D11Texture2D = desktop_resource.cast().map_err(|e| {
+            unsafe {
+                resources.output_duplication.ReleaseFrame().ok();
+            }
+            CaptureError::CaptureError(format!("转换纹理失败: {:?}", e))
+        })?;
 
         // 获取纹理描述
         let mut texture_desc = D3D11_TEXTURE2D_DESC::default();
@@ -237,19 +238,19 @@ impl ScreenCapture {
         let source_texture = if texture_desc.SampleDesc.Count > 1 {
             // 对于多重采样，需要resolve到单采样
             return Err(CaptureError::CaptureError(
-                "多重采样纹理暂不支持高效区域捕获".to_string()
+                "多重采样纹理暂不支持".to_string(),
             ));
         } else {
             texture
         };
 
-        // 创建全屏staging纹理用于CPU读取 - 使用与源纹理相同的格式
+        // 创建全屏staging纹理（复用，避免重复创建开销）
         let staging_texture_desc = D3D11_TEXTURE2D_DESC {
             Width: texture_desc.Width,
             Height: texture_desc.Height,
             MipLevels: 1,
             ArraySize: 1,
-            Format: texture_desc.Format, // 使用源纹理的原始格式
+            Format: texture_desc.Format,
             SampleDesc: DXGI_SAMPLE_DESC {
                 Count: 1,
                 Quality: 0,
@@ -266,23 +267,24 @@ impl ScreenCapture {
                 .device
                 .CreateTexture2D(&staging_texture_desc, None, Some(&mut staging_texture))
                 .map_err(|e| {
-                    unsafe { resources.output_duplication.ReleaseFrame().ok(); }
+                    resources.output_duplication.ReleaseFrame().ok();
                     CaptureError::CaptureError(format!("创建staging纹理失败: {:?}", e))
                 })?;
         }
 
         let staging_texture = staging_texture.ok_or_else(|| {
-            unsafe { resources.output_duplication.ReleaseFrame().ok(); }
+            unsafe {
+                resources.output_duplication.ReleaseFrame().ok();
+            }
             CaptureError::CaptureError("无法创建staging纹理".to_string())
         })?;
 
-        // 复制整个纹理数据到staging纹理
+        // 快速全屏复制到staging纹理
         unsafe {
-            resources.device_context.CopyResource(&staging_texture, &source_texture);
+            resources
+                .device_context
+                .CopyResource(&staging_texture, &source_texture);
         }
-
-        // 强制同步 - 等待GPU完成
-        std::thread::sleep(std::time::Duration::from_millis(1));
 
         // 映射staging纹理以读取数据
         let mut mapped_resource = D3D11_MAPPED_SUBRESOURCE::default();
@@ -298,55 +300,26 @@ impl ScreenCapture {
                 )
                 .map_err(|e| {
                     println!("Map调用失败，错误码: {:?}", e);
-                    println!("纹理格式: {}, CPU访问标志: {}", staging_texture_desc.Format.0, staging_texture_desc.CPUAccessFlags);
+                    println!(
+                        "纹理格式: {}, CPU访问标志: {}",
+                        staging_texture_desc.Format.0, staging_texture_desc.CPUAccessFlags
+                    );
                     let _ = resources.output_duplication.ReleaseFrame();
                     CaptureError::CaptureError(format!("映射staging纹理失败: {:?}", e))
                 })?;
         }
 
-        // 从全屏数据中提取指定区域
-        let bytes_per_pixel = 4; // BGRA格式
-        let full_row_pitch = mapped_resource.RowPitch as usize;
-        let region_width = region.width as usize;
-        let region_height = region.height as usize;
+        // 复制全屏数据
+        let row_pitch = mapped_resource.RowPitch as usize;
+        let total_size = (texture_desc.Height as usize) * row_pitch;
 
-        let mut region_data = Vec::with_capacity(region_width * region_height * bytes_per_pixel);
-
-        // 计算起始位置
-        let start_x = region.x.max(0) as usize;
-        let start_y = region.y.max(0) as usize;
-
+        let mut fullscreen_data = vec![0u8; total_size];
         unsafe {
-            let base_ptr = mapped_resource.pData as *const u8;
-
-            // 逐行提取区域数据
-            for y in 0..region_height {
-                let src_y = start_y + y;
-                if src_y >= texture_desc.Height as usize {
-                    break;
-                }
-
-                let src_row_start = src_y * full_row_pitch;
-                let src_start = src_row_start + start_x * bytes_per_pixel;
-
-                let copy_bytes = region_width * bytes_per_pixel;
-                let available_bytes = full_row_pitch.saturating_sub(start_x * bytes_per_pixel);
-                let actual_copy_bytes = copy_bytes.min(available_bytes);
-
-                if actual_copy_bytes > 0 {
-                    let src_ptr = base_ptr.add(src_start);
-                    region_data.extend_from_slice(std::slice::from_raw_parts(
-                        src_ptr,
-                        actual_copy_bytes
-                    ));
-
-                    // 如果这一行不够填充，用黑色像素填充
-                    let remaining = copy_bytes - actual_copy_bytes;
-                    if remaining > 0 {
-                        region_data.extend(std::iter::repeat(0u8).take(remaining));
-                    }
-                }
-            }
+            std::ptr::copy_nonoverlapping(
+                mapped_resource.pData as *const u8,
+                fullscreen_data.as_mut_ptr(),
+                total_size,
+            );
         }
 
         // 取消映射
@@ -359,9 +332,13 @@ impl ScreenCapture {
             resources.output_duplication.ReleaseFrame().ok();
         }
 
-        println!("DXGI区域捕获成功，区域大小: {}x{}, 数据大小: {} bytes",
-                region.width, region.height, region_data.len());
-        Ok(region_data)
+        println!(
+            "DXGI全屏捕获成功，屏幕大小: {}x{}, 数据大小: {} bytes",
+            texture_desc.Width,
+            texture_desc.Height,
+            fullscreen_data.len()
+        );
+        Ok(fullscreen_data)
     }
 
     /// 捕获指定区域的屏幕截图
@@ -386,37 +363,60 @@ impl ScreenCapture {
             return Err(CaptureError::InvalidRegion);
         }
 
-        // 创建全屏区域用于捕获
-        let full_screen_region = CaptureRegion {
-            x: 0,
-            y: 0,
-            width: self.width,
-            height: self.height,
-        };
-
-        // 使用DXGI捕获，失败时尝试重新初始化
-        let full_screen_data = match self.capture_frame(full_screen_region) {
+        // 使用DXGI捕获全屏，失败时尝试重新初始化
+        let fullscreen_data = match self.capture_fullscreen() {
             Ok(data) => data,
             Err(e) => {
                 // 如果DXGI捕获失败，尝试重新初始化
                 println!("DXGI捕获失败，尝试重新初始化: {}", e);
                 self.dxgi_resources = None;
                 self.ensure_dxgi_resources()?;
-                self.capture_frame(full_screen_region)?
+                self.capture_fullscreen()?
             }
         };
 
-        // capture_frame 已经返回了指定区域的数据，直接使用
-        let region_data = full_screen_data;
+        // 从全屏数据中提取指定区域的数据
+        // DXGI格式通常是BGRA，每个像素4字节
+        let bytes_per_pixel = 4; // BGRA格式
+        let screen_row_pitch = self.width as usize * bytes_per_pixel; // 全屏一行数据的字节数
+
+        // 计算区域数据的总大小
+        let region_data_size = region.width as usize * region.height as usize * bytes_per_pixel;
+        let mut region_data = vec![0u8; region_data_size];
+
+        // 从全屏数据中复制指定区域
+        for y in 0..region.height as usize {
+            let src_row_start = ((region.y as usize + y) * screen_row_pitch)
+                + (region.x as usize * bytes_per_pixel);
+            let dst_row_start = y * (region.width as usize * bytes_per_pixel);
+            let row_size = region.width as usize * bytes_per_pixel;
+
+            // 确保不越界
+            if src_row_start + row_size <= fullscreen_data.len() {
+                region_data[dst_row_start..dst_row_start + row_size]
+                    .copy_from_slice(&fullscreen_data[src_row_start..src_row_start + row_size]);
+            }
+        }
 
         // 如果提供了保存路径，则保存为PNG文件
         if let Some(path) = save_path {
             use image::{ImageBuffer, RgbaImage};
 
-            // 将数据转换为RGBA图像缓冲区
-            let img: RgbaImage =
-                ImageBuffer::from_raw(region.width, region.height, region_data.clone())
-                    .ok_or_else(|| CaptureError::CaptureError("创建图像缓冲区失败".to_string()))?;
+            // 将BGRA数据转换为RGBA图像缓冲区
+            // DXGI的BGRA格式需要转换为image crate的RGBA格式
+            let mut rgba_data = vec![0u8; region_data_size];
+            for i in 0..region_data_size / 4 {
+                let bgra_start = i * 4;
+                let rgba_start = i * 4;
+                // BGRA -> RGBA: B,G,R,A -> R,G,B,A
+                rgba_data[rgba_start] = region_data[bgra_start + 2]; // R <- B
+                rgba_data[rgba_start + 1] = region_data[bgra_start + 1]; // G <- G
+                rgba_data[rgba_start + 2] = region_data[bgra_start]; // B <- R
+                rgba_data[rgba_start + 3] = region_data[bgra_start + 3]; // A <- A
+            }
+
+            let img: RgbaImage = ImageBuffer::from_raw(region.width, region.height, rgba_data)
+                .ok_or_else(|| CaptureError::CaptureError("创建图像缓冲区失败".to_string()))?;
 
             // 保存为PNG
             img.save(path)
