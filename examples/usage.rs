@@ -14,12 +14,12 @@ fn main() {
         init_duration.as_secs_f64() * 1000.0
     );
 
-    // 定义捕获区域 (x, y, width, height)
+    // 定义捕获区域 (x, y, width, height) - 使用小区域进行测试
     let region = CaptureRegion {
         x: 0,
         y: 0,
-        width: 800,
-        height: 600,
+        width: 10,
+        height: 10,
     };
 
     println!("正在捕获区域: {:?}", region);
@@ -48,30 +48,22 @@ fn main() {
         }
     }
 
-    // 方法2：使用便捷函数
-    println!("\n正在使用便捷函数...");
-    let mut capture_instance = ScreenCapture::new();
-    let start_time = Instant::now();
-    capture_instance.init().expect("初始化捕获失败");
-    let init_duration = start_time.elapsed();
-    println!(
-        "捕获实例已初始化！耗时: {:.3}ms",
-        init_duration.as_secs_f64() * 1000.0
-    );
+    // 方法2：使用同一个实例进行多次捕获
+    println!("\n正在使用同一个实例进行多次捕获...");
 
     let region2 = CaptureRegion {
-        x: 100,
-        y: 100,
-        width: 400,
-        height: 300,
+        x: 1,
+        y: 1,
+        width: 20,
+        height: 15,
     };
 
     let start_time = Instant::now();
-    match luo_capture::capture(&mut capture_instance, region2, None) {
+    match screen_capture.capture(region2, None) {
         Ok(capture_data) => {
             let capture_duration = start_time.elapsed();
             println!(
-                "便捷函数捕获成功！耗时: {:.3}ms",
+                "第二次捕获成功！耗时: {:.3}ms",
                 capture_duration.as_secs_f64() * 1000.0
             );
             println!(
@@ -84,7 +76,7 @@ fn main() {
         Err(e) => {
             let capture_duration = start_time.elapsed();
             eprintln!(
-                "便捷函数捕获在 {:.3}ms 后失败: {}",
+                "第二次捕获在 {:.3}ms 后失败: {}",
                 capture_duration.as_secs_f64() * 1000.0,
                 e
             );
@@ -94,10 +86,10 @@ fn main() {
     // 方法3：测试PNG保存功能
     println!("\n正在测试PNG保存功能...");
     let region3 = CaptureRegion {
-        x: 50,
-        y: 50,
-        width: 200,
-        height: 150,
+        x: 0,
+        y: 0,
+        width: 5,
+        height: 5,
     };
 
     let save_path = "capture_example.png";
