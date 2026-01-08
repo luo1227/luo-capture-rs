@@ -70,13 +70,14 @@ impl ScreenCapture {
         self.width = 1920; // Assume a common screen resolution
         self.height = 1080;
         self.is_initialized = true;
-        
+
         Ok(())
     }
 
     /// 捕获指定区域的屏幕截图
     /// 使用DXGI技术，理论上可以达到1ms一帧的高性能
-    pub fn capture(&mut self, region: CaptureRegion) -> CaptureResult<CaptureData> {
+    /// 可选参数 save_path: 指定保存路径时会将截图保存为PNG文件
+    pub fn capture(&mut self, region: CaptureRegion, save_path: Option<&str>) -> CaptureResult<CaptureData> {
         if !self.is_initialized {
             return Err(CaptureError::CaptureError("Capture not initialized. Call init() first.".to_string()));
         }
@@ -93,13 +94,26 @@ impl ScreenCapture {
         // In a real implementation, this would use DXGI to capture the screen
         // For now, we'll simulate capturing by creating dummy data
         let data = vec![0u8; (region.width * region.height * 4) as usize]; // RGBA
-        
+
         let result = CaptureData {
-            data,
+            data: data.clone(),
             width: region.width,
             height: region.height,
             timestamp: Instant::now(),
         };
+
+        // 如果提供了保存路径，则保存为PNG文件
+        if let Some(path) = save_path {
+            use image::{ImageBuffer, RgbaImage};
+
+            // 将数据转换为RGBA图像缓冲区
+            let img: RgbaImage = ImageBuffer::from_raw(region.width, region.height, data)
+                .ok_or_else(|| CaptureError::CaptureError("Failed to create image buffer".to_string()))?;
+
+            // 保存为PNG
+            img.save(path)
+                .map_err(|e| CaptureError::CaptureError(format!("Failed to save PNG: {}", e)))?;
+        }
 
         Ok(result)
     }
@@ -143,11 +157,13 @@ impl AsyncScreenCapture {
     }
 
     /// 异步捕获
-    pub async fn capture(&self, region: CaptureRegion) -> Result<CaptureData, Box<dyn std::error::Error + Send + Sync>> {
+    /// 可选参数 save_path: 指定保存路径时会将截图保存为PNG文件
+    pub async fn capture(&self, region: CaptureRegion, save_path: Option<&str>) -> Result<CaptureData, Box<dyn std::error::Error + Send + Sync>> {
         let capture = self.capture.clone();
+        let save_path = save_path.map(|s| s.to_string()); // 将 &str 转换为 String 以便在线程间传递
         tokio::task::spawn_blocking(move || -> Result<CaptureData, Box<dyn std::error::Error + Send + Sync>> {
             let mut capture = capture.lock().map_err(|e| format!("Lock error: {}", e))?;
-            match capture.capture(region) {
+            match capture.capture(region, save_path.as_deref()) {
                 Ok(result) => Ok(result),
                 Err(e) => Err(Box::new(e))
             }
@@ -176,13 +192,15 @@ pub async fn init_async() -> Result<AsyncScreenCapture, Box<dyn std::error::Erro
 }
 
 /// 便捷函数：捕获屏幕区域
-pub fn capture(capture: &mut ScreenCapture, region: CaptureRegion) -> CaptureResult<CaptureData> {
-    capture.capture(region)
+/// 可选参数 save_path: 指定保存路径时会将截图保存为PNG文件
+pub fn capture(capture: &mut ScreenCapture, region: CaptureRegion, save_path: Option<&str>) -> CaptureResult<CaptureData> {
+    capture.capture(region, save_path)
 }
 
 /// 便捷函数：异步捕获屏幕区域
-pub async fn capture_async(capture: &AsyncScreenCapture, region: CaptureRegion) -> Result<CaptureData, Box<dyn std::error::Error + Send + Sync>> {
-    capture.capture(region).await
+/// 可选参数 save_path: 指定保存路径时会将截图保存为PNG文件
+pub async fn capture_async(capture: &AsyncScreenCapture, region: CaptureRegion, save_path: Option<&str>) -> Result<CaptureData, Box<dyn std::error::Error + Send + Sync>> {
+    capture.capture(region, save_path).await
 }
 
 #[cfg(test)]
@@ -207,5 +225,55 @@ mod tests {
     fn test_screen_capture_creation() {
         let capture = ScreenCapture::new();
         assert!(!capture.is_initialized());
+    }
+
+    #[test]
+    fn test_capture_with_png_save() {
+        use std::fs;
+        use std::path::Path;
+
+        let mut capture = ScreenCapture::new();
+        capture.init().unwrap();
+
+        let region = CaptureRegion {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 100,
+        };
+
+        // Create a temporary file path for testing
+        let temp_path = "test_capture.png";
+
+        // Capture with save path
+        let result = capture.capture(region, Some(temp_path));
+        assert!(result.is_ok());
+
+        // Verify file was created
+        assert!(Path::new(temp_path).exists());
+
+        // Clean up
+        let _ = fs::remove_file(temp_path);
+    }
+
+    #[test]
+    fn test_capture_without_png_save() {
+        let mut capture = ScreenCapture::new();
+        capture.init().unwrap();
+
+        let region = CaptureRegion {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 100,
+        };
+
+        // Capture without save path
+        let result = capture.capture(region, None);
+        assert!(result.is_ok());
+
+        let capture_data = result.unwrap();
+        assert_eq!(capture_data.width, 100);
+        assert_eq!(capture_data.height, 100);
     }
 }

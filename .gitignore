@@ -29,3 +29,10 @@ Thumbs.db
 *.bak
 *.backup
 *~
+
+# Generated images
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp

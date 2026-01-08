@@ -1,4 +1,4 @@
-use luo_capture_rs::capture::*;
+use luo_capture::capture::*;
 use std::time::Instant;
 
 #[tokio::main]
@@ -22,7 +22,7 @@ async fn main() {
 
     println!("Capturing region: {:?}", region);
     let start_time = Instant::now();
-    match screen_capture.capture(region) {
+    match screen_capture.capture(region, None) {
         Ok(capture_data) => {
             let capture_duration = start_time.elapsed();
             println!("Capture successful! Duration: {:.3}ms", capture_duration.as_secs_f64() * 1000.0);
@@ -44,7 +44,7 @@ async fn main() {
 
     println!("Async capturing region: {:?}", region);
     let start_time = Instant::now();
-    match async_capture.capture(region).await {
+    match async_capture.capture(region, None).await {
         Ok(capture_data) => {
             let capture_duration = start_time.elapsed();
             println!("Async capture successful! Duration: {:.3}ms", capture_duration.as_secs_f64() * 1000.0);
@@ -73,7 +73,7 @@ async fn main() {
     };
 
     let start_time = Instant::now();
-    match luo_capture_rs::capture(&mut capture_instance, region2) {
+    match luo_capture::capture(&mut capture_instance, region2, None) {
         Ok(capture_data) => {
             let capture_duration = start_time.elapsed();
             println!("Convenience function capture successful! Duration: {:.3}ms", capture_duration.as_secs_f64() * 1000.0);
@@ -83,6 +83,37 @@ async fn main() {
         Err(e) => {
             let capture_duration = start_time.elapsed();
             eprintln!("Convenience function capture failed after {:.3}ms: {}", capture_duration.as_secs_f64() * 1000.0, e);
+        }
+    }
+
+    // Method 4: Capture with PNG save functionality
+    println!("\nTesting PNG save functionality...");
+    let region3 = CaptureRegion {
+        x: 50,
+        y: 50,
+        width: 200,
+        height: 150,
+    };
+
+    let save_path = "capture_example.png";
+    let start_time = Instant::now();
+    match screen_capture.capture(region3, Some(save_path)) {
+        Ok(capture_data) => {
+            let capture_duration = start_time.elapsed();
+            println!("Capture with PNG save successful! Duration: {:.3}ms", capture_duration.as_secs_f64() * 1000.0);
+            println!("Width: {}, Height: {}, Data size: {} bytes", capture_data.width, capture_data.height, capture_data.data.len());
+            println!("PNG saved to: {}", save_path);
+
+            // Check if file exists
+            if std::path::Path::new(save_path).exists() {
+                println!("✓ PNG file created successfully");
+            } else {
+                println!("✗ PNG file was not created");
+            }
+        },
+        Err(e) => {
+            let capture_duration = start_time.elapsed();
+            eprintln!("Capture with PNG save failed after {:.3}ms: {}", capture_duration.as_secs_f64() * 1000.0, e);
         }
     }
 }
