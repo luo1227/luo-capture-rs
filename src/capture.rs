@@ -1,9 +1,15 @@
-use std::sync::Arc;
-use std::sync::Mutex;
 use std::time::Instant;
-use windows::Win32::Graphics::Dxgi::{DXGI_OUTPUT_DESC, IDXGIAdapter, IDXGIOutput, IDXGIOutputDuplication, IDXGIResource, DXGI_OUTDUPL_FRAME_INFO};
-use windows::Win32::Graphics::Direct3D11::{ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D, D3D11CreateDevice, D3D_DRIVER_TYPE, D3D_FEATURE_LEVEL, D3D11_CREATE_DEVICE_FLAG, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC, D3D11_USAGE, D3D11_BIND_FLAG, D3D11_CPU_ACCESS_FLAG, D3D11_RESOURCE_MISC_FLAG, D3D11_MAPPED_SUBRESOURCE, D3D11_MAP};
+use windows::Win32::Graphics::Direct3D::{D3D_DRIVER_TYPE, D3D_FEATURE_LEVEL};
+use windows::Win32::Graphics::Direct3D11::{
+    D3D11_CREATE_DEVICE_FLAG, D3D11_MAP, D3D11_MAPPED_SUBRESOURCE, D3D11_SDK_VERSION,
+    D3D11_TEXTURE2D_DESC, D3D11_USAGE, D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext,
+    ID3D11Texture2D,
+};
 use windows::Win32::Graphics::Dxgi::Common::DXGI_SAMPLE_DESC;
+use windows::Win32::Graphics::Dxgi::{
+    DXGI_OUTDUPL_FRAME_INFO, IDXGIAdapter, IDXGIDevice, IDXGIOutput, IDXGIOutput1,
+    IDXGIOutputDuplication, IDXGIResource,
+};
 use windows_core::Interface;
 
 /// 捕获区域结构体
@@ -54,7 +60,6 @@ struct DxgiResources {
     device: ID3D11Device,
     device_context: ID3D11DeviceContext,
     output_duplication: IDXGIOutputDuplication,
-    output_desc: DXGI_OUTPUT_DESC,
 }
 
 /// 捕获器结构体
@@ -81,34 +86,35 @@ impl ScreenCapture {
         // 创建D3D11设备
         let mut device: Option<ID3D11Device> = None;
         let mut device_context: Option<ID3D11DeviceContext> = None;
-        let mut feature_level = D3D_FEATURE_LEVEL(0);
+        let mut feature_level = D3D_FEATURE_LEVEL::default();
 
         unsafe {
             D3D11CreateDevice(
                 None,
-                D3D_DRIVER_TYPE::HARDWARE,
+                D3D_DRIVER_TYPE(1), // HARDWARE
                 None,
-                D3D11_CREATE_DEVICE_FLAG(0x20), // BGRA_SUPPORT
-                Some(&[D3D_FEATURE_LEVEL(0xb000)]), // D3D_FEATURE_LEVEL_11_0
+                D3D11_CREATE_DEVICE_FLAG(0x20),     // BGRA_SUPPORT
+                Some(&[D3D_FEATURE_LEVEL(0xb000)]), // LEVEL_11_0
                 D3D11_SDK_VERSION,
                 Some(&mut device),
                 Some(&mut feature_level),
                 Some(&mut device_context),
             )
-            .map_err(|e| CaptureError::InitializationError(format!("创建D3D11设备失败: {:?}", e)))?;
+            .map_err(|e| {
+                CaptureError::InitializationError(format!("创建D3D11设备失败: {:?}", e))
+            })?;
         }
 
-        let device = device.ok_or_else(|| {
-            CaptureError::InitializationError("无法获取D3D11设备".to_string())
-        })?;
+        let device = device
+            .ok_or_else(|| CaptureError::InitializationError("无法获取D3D11设备".to_string()))?;
         let device_context = device_context.ok_or_else(|| {
             CaptureError::InitializationError("无法获取D3D11设备上下文".to_string())
         })?;
 
         // 获取DXGI设备
-        let dxgi_device: IDXGIDevice = device.cast().map_err(|e| {
-            CaptureError::InitializationError(format!("获取DXGI设备失败: {:?}", e))
-        })?;
+        let dxgi_device: IDXGIDevice = device
+            .cast()
+            .map_err(|e| CaptureError::InitializationError(format!("获取DXGI设备失败: {:?}", e)))?;
 
         // 获取DXGI适配器
         let adapter: IDXGIAdapter = unsafe { dxgi_device.GetAdapter() }.map_err(|e| {
@@ -116,33 +122,34 @@ impl ScreenCapture {
         })?;
 
         // 获取主输出设备（通常是主显示器）
-        let output: IDXGIOutput = unsafe { adapter.EnumOutputs(0) }.map_err(|e| {
-            CaptureError::InitializationError(format!("枚举输出设备失败: {:?}", e))
-        })?;
+        let output: IDXGIOutput = unsafe { adapter.EnumOutputs(0) }
+            .map_err(|e| CaptureError::InitializationError(format!("枚举输出设备失败: {:?}", e)))?;
 
         // 获取输出描述
-        let mut output_desc = DXGI_OUTPUT_DESC::default();
-        unsafe { output.GetDesc(&mut output_desc) }.map_err(|e| {
-            CaptureError::InitializationError(format!("获取输出描述失败: {:?}", e))
-        })?;
+        let output_desc = unsafe { output.GetDesc() }
+            .map_err(|e| CaptureError::InitializationError(format!("获取输出描述失败: {:?}", e)))?;
+
+        // 转换为IDXGIOutput1以使用DuplicateOutput
+        let output1: IDXGIOutput1 = output
+            .cast()
+            .map_err(|e| CaptureError::InitializationError(format!("转换输出设备失败: {:?}", e)))?;
 
         // 创建输出复制对象
         let output_duplication: IDXGIOutputDuplication = unsafe {
-            output.DuplicateOutput(&device)
+            output1.DuplicateOutput(&device)
         }
-        .map_err(|e| {
-            CaptureError::InitializationError(format!("创建输出复制对象失败: {:?}", e))
-        })?;
+        .map_err(|e| CaptureError::InitializationError(format!("创建输出复制对象失败: {:?}", e)))?;
 
         // 设置屏幕尺寸
-        self.width = output_desc.DesktopCoordinates.right - output_desc.DesktopCoordinates.left;
-        self.height = output_desc.DesktopCoordinates.bottom - output_desc.DesktopCoordinates.top;
+        self.width =
+            (output_desc.DesktopCoordinates.right - output_desc.DesktopCoordinates.left) as u32;
+        self.height =
+            (output_desc.DesktopCoordinates.bottom - output_desc.DesktopCoordinates.top) as u32;
 
         Ok(DxgiResources {
             device,
             device_context,
             output_duplication,
-            output_desc,
         })
     }
 
@@ -162,32 +169,34 @@ impl ScreenCapture {
 
     /// 执行DXGI屏幕捕获
     fn capture_frame(&mut self) -> CaptureResult<Vec<u8>> {
-        let resources = self.dxgi_resources.as_ref().ok_or_else(|| {
-            CaptureError::CaptureError("DXGI资源未初始化".to_string())
-        })?;
+        let resources = self
+            .dxgi_resources
+            .as_ref()
+            .ok_or_else(|| CaptureError::CaptureError("DXGI资源未初始化".to_string()))?;
 
         // 获取桌面帧
         let mut frame_info = DXGI_OUTDUPL_FRAME_INFO::default();
         let mut desktop_resource: Option<IDXGIResource> = None;
 
         unsafe {
-            resources.output_duplication.AcquireNextFrame(
-                100, // 超时时间（毫秒）
-                &mut frame_info,
-                &mut desktop_resource,
-            )
-            .map_err(|e| CaptureError::CaptureError(format!("获取帧失败: {:?}", e)))?;
+            resources
+                .output_duplication
+                .AcquireNextFrame(
+                    100, // 超时时间（毫秒）
+                    &mut frame_info,
+                    &mut desktop_resource,
+                )
+                .map_err(|e| CaptureError::CaptureError(format!("获取帧失败: {:?}", e)))?;
         }
 
         // 确保我们获得了资源
-        let desktop_resource = desktop_resource.ok_or_else(|| {
-            CaptureError::CaptureError("无法获取桌面资源".to_string())
-        })?;
+        let desktop_resource = desktop_resource
+            .ok_or_else(|| CaptureError::CaptureError("无法获取桌面资源".to_string()))?;
 
         // 转换为纹理
-        let texture: ID3D11Texture2D = desktop_resource.cast().map_err(|e| {
-            CaptureError::CaptureError(format!("转换纹理失败: {:?}", e))
-        })?;
+        let texture: ID3D11Texture2D = desktop_resource
+            .cast()
+            .map_err(|e| CaptureError::CaptureError(format!("转换纹理失败: {:?}", e)))?;
 
         // 获取纹理描述
         let mut texture_desc = D3D11_TEXTURE2D_DESC::default();
@@ -205,45 +214,45 @@ impl ScreenCapture {
                 Quality: 0,
             },
             Usage: D3D11_USAGE(3), // STAGING
-            BindFlags: D3D11_BIND_FLAG(0),
-            CPUAccessFlags: D3D11_CPU_ACCESS_FLAG(0x10000), // READ
-            MiscFlags: D3D11_RESOURCE_MISC_FLAG(0),
+            BindFlags: 0,
+            CPUAccessFlags: 0x10000, // READ
+            MiscFlags: 0,
         };
 
         let mut staging_texture: Option<ID3D11Texture2D> = None;
         unsafe {
-            resources.device.CreateTexture2D(
-                &staging_texture_desc,
-                None,
-                Some(&mut staging_texture),
-            )
-            .map_err(|e| CaptureError::CaptureError(format!("创建暂存纹理失败: {:?}", e)))?;
+            resources
+                .device
+                .CreateTexture2D(&staging_texture_desc, None, Some(&mut staging_texture))
+                .map_err(|e| CaptureError::CaptureError(format!("创建暂存纹理失败: {:?}", e)))?;
         }
 
-        let staging_texture = staging_texture.ok_or_else(|| {
-            CaptureError::CaptureError("无法创建暂存纹理".to_string())
-        })?;
+        let staging_texture = staging_texture
+            .ok_or_else(|| CaptureError::CaptureError("无法创建暂存纹理".to_string()))?;
 
         // 复制纹理数据
         unsafe {
-            resources.device_context.CopyResource(&staging_texture, &texture);
+            resources
+                .device_context
+                .CopyResource(&staging_texture, &texture);
         }
 
         // 映射纹理以读取数据
         let mut mapped_resource = D3D11_MAPPED_SUBRESOURCE::default();
         unsafe {
-            resources.device_context.Map(
-                &staging_texture,
-                0,
-                D3D11_MAP(1), // READ
-                0,
-                Some(&mut mapped_resource),
-            )
-            .map_err(|e| CaptureError::CaptureError(format!("映射纹理失败: {:?}", e)))?;
+            resources
+                .device_context
+                .Map(
+                    &staging_texture,
+                    0,
+                    D3D11_MAP(1), // READ
+                    0,
+                    Some(&mut mapped_resource),
+                )
+                .map_err(|e| CaptureError::CaptureError(format!("映射纹理失败: {:?}", e)))?;
         }
 
         // 计算数据大小
-        let bytes_per_pixel = 4; // BGRA格式
         let row_pitch = mapped_resource.RowPitch as usize;
         let total_size = (texture_desc.Height as usize) * row_pitch;
 
@@ -319,7 +328,8 @@ impl ScreenCapture {
 
             let src_row_start = src_y * full_width * bytes_per_pixel;
             let src_start = src_row_start + start_x * bytes_per_pixel;
-            let src_end = (src_start + region_width * bytes_per_pixel).min(src_row_start + full_width * bytes_per_pixel);
+            let src_end = (src_start + region_width * bytes_per_pixel)
+                .min(src_row_start + full_width * bytes_per_pixel);
 
             if src_start < full_screen_data.len() {
                 let copy_len = src_end.saturating_sub(src_start);
@@ -331,25 +341,26 @@ impl ScreenCapture {
             }
         }
 
+        // 如果提供了保存路径，则保存为PNG文件
+        if let Some(path) = save_path {
+            use image::{ImageBuffer, RgbaImage};
+
+            // 将数据转换为RGBA图像缓冲区
+            let img: RgbaImage =
+                ImageBuffer::from_raw(region.width, region.height, region_data.clone())
+                    .ok_or_else(|| CaptureError::CaptureError("创建图像缓冲区失败".to_string()))?;
+
+            // 保存为PNG
+            img.save(path)
+                .map_err(|e| CaptureError::CaptureError(format!("保存PNG文件失败: {}", e)))?;
+        }
+
         let result = CaptureData {
             data: region_data,
             width: region.width,
             height: region.height,
             timestamp: Instant::now(),
         };
-
-        // 如果提供了保存路径，则保存为PNG文件
-        if let Some(path) = save_path {
-            use image::{ImageBuffer, RgbaImage};
-
-            // 将数据转换为RGBA图像缓冲区
-            let img: RgbaImage = ImageBuffer::from_raw(region.width, region.height, region_data.clone())
-                .ok_or_else(|| CaptureError::CaptureError("创建图像缓冲区失败".to_string()))?;
-
-            // 保存为PNG
-            img.save(path)
-                .map_err(|e| CaptureError::CaptureError(format!("保存PNG文件失败: {}", e)))?;
-        }
 
         Ok(result)
     }
@@ -374,74 +385,10 @@ impl Default for ScreenCapture {
     }
 }
 
-/// 异步版本的捕获器
-/// 适用于需要非阻塞操作的场景
-pub struct AsyncScreenCapture {
-    capture: Arc<Mutex<ScreenCapture>>,
-}
-
-impl AsyncScreenCapture {
-    /// 创建新的异步捕获器
-    pub fn new() -> Self {
-        Self {
-            capture: Arc::new(Mutex::new(ScreenCapture::new())),
-        }
-    }
-
-    /// 异步初始化
-    pub async fn init(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let capture = self.capture.clone();
-        tokio::task::spawn_blocking(
-            move || -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-                let mut capture = capture.lock().map_err(|e| format!("锁定错误: {}", e))?;
-                match capture.init() {
-                    Ok(()) => Ok(()),
-                    Err(e) => Err(Box::new(e)),
-                }
-            },
-        )
-        .await?
-    }
-
-    /// 异步捕获
-    /// 可选参数 save_path: 指定保存路径时会将截图保存为PNG文件
-    pub async fn capture(
-        &self,
-        region: CaptureRegion,
-        save_path: Option<&str>,
-    ) -> Result<CaptureData, Box<dyn std::error::Error + Send + Sync>> {
-        let capture = self.capture.clone();
-        let save_path = save_path.map(|s| s.to_string()); // 将&str转换为String以便在线程间传递
-        tokio::task::spawn_blocking(
-            move || -> Result<CaptureData, Box<dyn std::error::Error + Send + Sync>> {
-                let mut capture = capture.lock().map_err(|e| format!("锁定错误: {}", e))?;
-                match capture.capture(region, save_path.as_deref()) {
-                    Ok(result) => Ok(result),
-                    Err(e) => Err(Box::new(e)),
-                }
-            },
-        )
-        .await?
-    }
-}
-
-impl Default for AsyncScreenCapture {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// 便捷函数：初始化捕获器
 pub fn init() -> CaptureResult<ScreenCapture> {
     let mut capture = ScreenCapture::new();
     capture.init()?;
-    Ok(capture)
-}
-
-/// 便捷函数：异步初始化捕获器
-pub async fn init_async() -> Result<AsyncScreenCapture, Box<dyn std::error::Error + Send + Sync>> {
-    let capture = AsyncScreenCapture::new();
-    capture.init().await?;
     Ok(capture)
 }
 
@@ -453,16 +400,6 @@ pub fn capture(
     save_path: Option<&str>,
 ) -> CaptureResult<CaptureData> {
     capture.capture(region, save_path)
-}
-
-/// 便捷函数：异步捕获屏幕区域
-/// 可选参数 save_path: 指定保存路径时会将截图保存为PNG文件
-pub async fn capture_async(
-    capture: &AsyncScreenCapture,
-    region: CaptureRegion,
-    save_path: Option<&str>,
-) -> Result<CaptureData, Box<dyn std::error::Error + Send + Sync>> {
-    capture.capture(region, save_path).await
 }
 
 #[cfg(test)]

@@ -1,8 +1,7 @@
-use luo_capture::capture::*;
+use luo_capture::*;
 use std::time::Instant;
 
-#[tokio::main]
-async fn main() {
+fn main() {
     // 捕获模块的使用示例，包含计时功能
 
     // 方法1：同步初始化和捕获
@@ -49,43 +48,7 @@ async fn main() {
         }
     }
 
-    // 方法2：异步初始化和捕获
-    println!("\n正在初始化异步捕获模块...");
-    let start_time = Instant::now();
-    let async_capture = init_async().await.expect("异步初始化捕获失败");
-    let init_duration = start_time.elapsed();
-    println!(
-        "异步捕获模块初始化成功！耗时: {:.3}ms",
-        init_duration.as_secs_f64() * 1000.0
-    );
-
-    println!("异步捕获区域: {:?}", region);
-    let start_time = Instant::now();
-    match async_capture.capture(region, None).await {
-        Ok(capture_data) => {
-            let capture_duration = start_time.elapsed();
-            println!(
-                "异步捕获成功！耗时: {:.3}ms",
-                capture_duration.as_secs_f64() * 1000.0
-            );
-            println!(
-                "宽度: {}, 高度: {}, 数据大小: {} 字节",
-                capture_data.width,
-                capture_data.height,
-                capture_data.data.len()
-            );
-        }
-        Err(e) => {
-            let capture_duration = start_time.elapsed();
-            eprintln!(
-                "异步捕获在 {:.3}ms 后失败: {}",
-                capture_duration.as_secs_f64() * 1000.0,
-                e
-            );
-        }
-    }
-
-    // 方法3：使用便捷函数
+    // 方法2：使用便捷函数
     println!("\n正在使用便捷函数...");
     let mut capture_instance = ScreenCapture::new();
     let start_time = Instant::now();
@@ -128,7 +91,7 @@ async fn main() {
         }
     }
 
-    // 方法4：测试PNG保存功能
+    // 方法3：测试PNG保存功能
     println!("\n正在测试PNG保存功能...");
     let region3 = CaptureRegion {
         x: 50,
