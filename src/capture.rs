@@ -256,7 +256,7 @@ impl ScreenCapture {
             },
             Usage: D3D11_USAGE(3), // STAGING
             BindFlags: 0,
-            CPUAccessFlags: 0x10000, // READ
+            CPUAccessFlags: 0x10000 | 0x20000, // READ | WRITE
             MiscFlags: 0,
         };
 
@@ -278,16 +278,7 @@ impl ScreenCapture {
 
         // 复制整个纹理数据到staging纹理
         unsafe {
-            resources.device_context.CopySubresourceRegion(
-                &staging_texture,
-                0,
-                0,
-                0,
-                0,
-                &source_texture,
-                0,
-                None,
-            );
+            resources.device_context.CopyResource(&staging_texture, &source_texture);
         }
 
         // 强制同步 - 等待GPU完成
