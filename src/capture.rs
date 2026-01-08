@@ -20,7 +20,7 @@ pub struct CaptureData {
     pub timestamp: std::time::Instant,
 }
 
-// Define our own Result type to avoid conflicts with windows crate
+// 定义我们自己的Result类型以避免与windows crate冲突
 pub type CaptureResult<T> = std::result::Result<T, CaptureError>;
 
 /// 自定义错误类型
@@ -35,10 +35,10 @@ pub enum CaptureError {
 impl std::fmt::Display for CaptureError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CaptureError::InitializationError(msg) => write!(f, "Initialization error: {}", msg),
-            CaptureError::CaptureError(msg) => write!(f, "Capture error: {}", msg),
-            CaptureError::InvalidRegion => write!(f, "Invalid capture region"),
-            CaptureError::ResourceError(msg) => write!(f, "Resource error: {}", msg),
+            CaptureError::InitializationError(msg) => write!(f, "初始化错误: {}", msg),
+            CaptureError::CaptureError(msg) => write!(f, "捕获错误: {}", msg),
+            CaptureError::InvalidRegion => write!(f, "无效的捕获区域"),
+            CaptureError::ResourceError(msg) => write!(f, "资源错误: {}", msg),
         }
     }
 }
@@ -65,9 +65,9 @@ impl ScreenCapture {
     /// 初始化捕获器
     /// 使用DXGI技术进行高性能屏幕捕获
     pub fn init(&mut self) -> CaptureResult<()> {
-        // In a real implementation, this would initialize DXGI resources
-        // For now, we'll simulate initialization
-        self.width = 1920; // Assume a common screen resolution
+        // 在实际实现中，这里会初始化DXGI资源
+        // 现在我们先模拟初始化过程
+        self.width = 1920; // 假设常见的屏幕分辨率
         self.height = 1080;
         self.is_initialized = true;
 
@@ -79,7 +79,7 @@ impl ScreenCapture {
     /// 可选参数 save_path: 指定保存路径时会将截图保存为PNG文件
     pub fn capture(&mut self, region: CaptureRegion, save_path: Option<&str>) -> CaptureResult<CaptureData> {
         if !self.is_initialized {
-            return Err(CaptureError::CaptureError("Capture not initialized. Call init() first.".to_string()));
+            return Err(CaptureError::CaptureError("捕获器未初始化。请先调用init()方法。".to_string()));
         }
 
         // 验证区域参数
@@ -91,9 +91,9 @@ impl ScreenCapture {
             return Err(CaptureError::InvalidRegion);
         }
 
-        // In a real implementation, this would use DXGI to capture the screen
-        // For now, we'll simulate capturing by creating dummy data
-        let data = vec![0u8; (region.width * region.height * 4) as usize]; // RGBA
+        // 在实际实现中，这里会使用DXGI捕获屏幕
+        // 现在我们先通过创建模拟数据来模拟捕获过程
+        let data = vec![0u8; (region.width * region.height * 4) as usize]; // RGBA格式
 
         let result = CaptureData {
             data: data.clone(),
@@ -108,11 +108,11 @@ impl ScreenCapture {
 
             // 将数据转换为RGBA图像缓冲区
             let img: RgbaImage = ImageBuffer::from_raw(region.width, region.height, data)
-                .ok_or_else(|| CaptureError::CaptureError("Failed to create image buffer".to_string()))?;
+                .ok_or_else(|| CaptureError::CaptureError("创建图像缓冲区失败".to_string()))?;
 
             // 保存为PNG
             img.save(path)
-                .map_err(|e| CaptureError::CaptureError(format!("Failed to save PNG: {}", e)))?;
+                .map_err(|e| CaptureError::CaptureError(format!("保存PNG文件失败: {}", e)))?;
         }
 
         Ok(result)
@@ -148,7 +148,7 @@ impl AsyncScreenCapture {
     pub async fn init(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let capture = self.capture.clone();
         tokio::task::spawn_blocking(move || -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-            let mut capture = capture.lock().map_err(|e| format!("Lock error: {}", e))?;
+            let mut capture = capture.lock().map_err(|e| format!("锁定错误: {}", e))?;
             match capture.init() {
                 Ok(()) => Ok(()),
                 Err(e) => Err(Box::new(e))
@@ -160,9 +160,9 @@ impl AsyncScreenCapture {
     /// 可选参数 save_path: 指定保存路径时会将截图保存为PNG文件
     pub async fn capture(&self, region: CaptureRegion, save_path: Option<&str>) -> Result<CaptureData, Box<dyn std::error::Error + Send + Sync>> {
         let capture = self.capture.clone();
-        let save_path = save_path.map(|s| s.to_string()); // 将 &str 转换为 String 以便在线程间传递
+        let save_path = save_path.map(|s| s.to_string()); // 将&str转换为String以便在线程间传递
         tokio::task::spawn_blocking(move || -> Result<CaptureData, Box<dyn std::error::Error + Send + Sync>> {
-            let mut capture = capture.lock().map_err(|e| format!("Lock error: {}", e))?;
+            let mut capture = capture.lock().map_err(|e| format!("锁定错误: {}", e))?;
             match capture.capture(region, save_path.as_deref()) {
                 Ok(result) => Ok(result),
                 Err(e) => Err(Box::new(e))
@@ -242,17 +242,17 @@ mod tests {
             height: 100,
         };
 
-        // Create a temporary file path for testing
+        // 创建临时文件路径用于测试
         let temp_path = "test_capture.png";
 
-        // Capture with save path
+        // 使用保存路径进行捕获
         let result = capture.capture(region, Some(temp_path));
         assert!(result.is_ok());
 
-        // Verify file was created
+        // 验证文件已创建
         assert!(Path::new(temp_path).exists());
 
-        // Clean up
+        // 清理文件
         let _ = fs::remove_file(temp_path);
     }
 
@@ -268,7 +268,7 @@ mod tests {
             height: 100,
         };
 
-        // Capture without save path
+        // 不使用保存路径进行捕获
         let result = capture.capture(region, None);
         assert!(result.is_ok());
 

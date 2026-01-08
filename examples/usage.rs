@@ -3,16 +3,16 @@ use std::time::Instant;
 
 #[tokio::main]
 async fn main() {
-    // Example usage of the capture module with timing
+    // 捕获模块的使用示例，包含计时功能
 
-    // Method 1: Synchronous initialization and capture
-    println!("Initializing capture module...");
+    // 方法1：同步初始化和捕获
+    println!("正在初始化捕获模块...");
     let start_time = Instant::now();
-    let mut screen_capture = init().expect("Failed to initialize capture");
+    let mut screen_capture = init().expect("初始化捕获失败");
     let init_duration = start_time.elapsed();
-    println!("Capture initialized successfully! Duration: {:.3}ms", init_duration.as_secs_f64() * 1000.0);
+    println!("捕获模块初始化成功！耗时: {:.3}ms", init_duration.as_secs_f64() * 1000.0);
 
-    // Define a capture region (x, y, width, height)
+    // 定义捕获区域 (x, y, width, height)
     let region = CaptureRegion {
         x: 0,
         y: 0,
@@ -20,50 +20,50 @@ async fn main() {
         height: 600,
     };
 
-    println!("Capturing region: {:?}", region);
+    println!("正在捕获区域: {:?}", region);
     let start_time = Instant::now();
     match screen_capture.capture(region, None) {
         Ok(capture_data) => {
             let capture_duration = start_time.elapsed();
-            println!("Capture successful! Duration: {:.3}ms", capture_duration.as_secs_f64() * 1000.0);
-            println!("Width: {}, Height: {}, Data size: {} bytes",
+            println!("捕获成功！耗时: {:.3}ms", capture_duration.as_secs_f64() * 1000.0);
+            println!("宽度: {}, 高度: {}, 数据大小: {} 字节",
                      capture_data.width, capture_data.height, capture_data.data.len());
         },
         Err(e) => {
             let capture_duration = start_time.elapsed();
-            eprintln!("Capture failed after {:.3}ms: {}", capture_duration.as_secs_f64() * 1000.0, e);
+            eprintln!("捕获在 {:.3}ms 后失败: {}", capture_duration.as_secs_f64() * 1000.0, e);
         }
     }
 
-    // Method 2: Asynchronous initialization and capture
-    println!("\nInitializing async capture module...");
+    // 方法2：异步初始化和捕获
+    println!("\n正在初始化异步捕获模块...");
     let start_time = Instant::now();
-    let async_capture = init_async().await.expect("Failed to initialize async capture");
+    let async_capture = init_async().await.expect("异步初始化捕获失败");
     let init_duration = start_time.elapsed();
-    println!("Async capture initialized successfully! Duration: {:.3}ms", init_duration.as_secs_f64() * 1000.0);
+    println!("异步捕获模块初始化成功！耗时: {:.3}ms", init_duration.as_secs_f64() * 1000.0);
 
-    println!("Async capturing region: {:?}", region);
+    println!("异步捕获区域: {:?}", region);
     let start_time = Instant::now();
     match async_capture.capture(region, None).await {
         Ok(capture_data) => {
             let capture_duration = start_time.elapsed();
-            println!("Async capture successful! Duration: {:.3}ms", capture_duration.as_secs_f64() * 1000.0);
-            println!("Width: {}, Height: {}, Data size: {} bytes",
+            println!("异步捕获成功！耗时: {:.3}ms", capture_duration.as_secs_f64() * 1000.0);
+            println!("宽度: {}, 高度: {}, 数据大小: {} 字节",
                      capture_data.width, capture_data.height, capture_data.data.len());
         },
         Err(e) => {
             let capture_duration = start_time.elapsed();
-            eprintln!("Async capture failed after {:.3}ms: {}", capture_duration.as_secs_f64() * 1000.0, e);
+            eprintln!("异步捕获在 {:.3}ms 后失败: {}", capture_duration.as_secs_f64() * 1000.0, e);
         }
     }
 
-    // Method 3: Using convenience functions
-    println!("\nUsing convenience functions...");
+    // 方法3：使用便捷函数
+    println!("\n正在使用便捷函数...");
     let mut capture_instance = ScreenCapture::new();
     let start_time = Instant::now();
-    capture_instance.init().expect("Failed to initialize capture");
+    capture_instance.init().expect("初始化捕获失败");
     let init_duration = start_time.elapsed();
-    println!("Capture instance initialized! Duration: {:.3}ms", init_duration.as_secs_f64() * 1000.0);
+    println!("捕获实例已初始化！耗时: {:.3}ms", init_duration.as_secs_f64() * 1000.0);
 
     let region2 = CaptureRegion {
         x: 100,
@@ -76,18 +76,18 @@ async fn main() {
     match luo_capture::capture(&mut capture_instance, region2, None) {
         Ok(capture_data) => {
             let capture_duration = start_time.elapsed();
-            println!("Convenience function capture successful! Duration: {:.3}ms", capture_duration.as_secs_f64() * 1000.0);
-            println!("Width: {}, Height: {}, Data size: {} bytes",
+            println!("便捷函数捕获成功！耗时: {:.3}ms", capture_duration.as_secs_f64() * 1000.0);
+            println!("宽度: {}, 高度: {}, 数据大小: {} 字节",
                      capture_data.width, capture_data.height, capture_data.data.len());
         },
         Err(e) => {
             let capture_duration = start_time.elapsed();
-            eprintln!("Convenience function capture failed after {:.3}ms: {}", capture_duration.as_secs_f64() * 1000.0, e);
+            eprintln!("便捷函数捕获在 {:.3}ms 后失败: {}", capture_duration.as_secs_f64() * 1000.0, e);
         }
     }
 
-    // Method 4: Capture with PNG save functionality
-    println!("\nTesting PNG save functionality...");
+    // 方法4：测试PNG保存功能
+    println!("\n正在测试PNG保存功能...");
     let region3 = CaptureRegion {
         x: 50,
         y: 50,
@@ -100,20 +100,20 @@ async fn main() {
     match screen_capture.capture(region3, Some(save_path)) {
         Ok(capture_data) => {
             let capture_duration = start_time.elapsed();
-            println!("Capture with PNG save successful! Duration: {:.3}ms", capture_duration.as_secs_f64() * 1000.0);
-            println!("Width: {}, Height: {}, Data size: {} bytes", capture_data.width, capture_data.height, capture_data.data.len());
-            println!("PNG saved to: {}", save_path);
+            println!("带PNG保存的捕获成功！耗时: {:.3}ms", capture_duration.as_secs_f64() * 1000.0);
+            println!("宽度: {}, 高度: {}, 数据大小: {} 字节", capture_data.width, capture_data.height, capture_data.data.len());
+            println!("PNG已保存到: {}", save_path);
 
-            // Check if file exists
+            // 检查文件是否存在
             if std::path::Path::new(save_path).exists() {
-                println!("✓ PNG file created successfully");
+                println!("✓ PNG文件创建成功");
             } else {
-                println!("✗ PNG file was not created");
+                println!("✗ PNG文件未创建");
             }
         },
         Err(e) => {
             let capture_duration = start_time.elapsed();
-            eprintln!("Capture with PNG save failed after {:.3}ms: {}", capture_duration.as_secs_f64() * 1000.0, e);
+            eprintln!("带PNG保存的捕获在 {:.3}ms 后失败: {}", capture_duration.as_secs_f64() * 1000.0, e);
         }
     }
 }
