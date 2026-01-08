@@ -10,7 +10,10 @@ async fn main() {
     let start_time = Instant::now();
     let mut screen_capture = init().expect("初始化捕获失败");
     let init_duration = start_time.elapsed();
-    println!("捕获模块初始化成功！耗时: {:.3}ms", init_duration.as_secs_f64() * 1000.0);
+    println!(
+        "捕获模块初始化成功！耗时: {:.3}ms",
+        init_duration.as_secs_f64() * 1000.0
+    );
 
     // 定义捕获区域 (x, y, width, height)
     let region = CaptureRegion {
@@ -25,13 +28,24 @@ async fn main() {
     match screen_capture.capture(region, None) {
         Ok(capture_data) => {
             let capture_duration = start_time.elapsed();
-            println!("捕获成功！耗时: {:.3}ms", capture_duration.as_secs_f64() * 1000.0);
-            println!("宽度: {}, 高度: {}, 数据大小: {} 字节",
-                     capture_data.width, capture_data.height, capture_data.data.len());
-        },
+            println!(
+                "捕获成功！耗时: {:.3}ms",
+                capture_duration.as_secs_f64() * 1000.0
+            );
+            println!(
+                "宽度: {}, 高度: {}, 数据大小: {} 字节",
+                capture_data.width,
+                capture_data.height,
+                capture_data.data.len()
+            );
+        }
         Err(e) => {
             let capture_duration = start_time.elapsed();
-            eprintln!("捕获在 {:.3}ms 后失败: {}", capture_duration.as_secs_f64() * 1000.0, e);
+            eprintln!(
+                "捕获在 {:.3}ms 后失败: {}",
+                capture_duration.as_secs_f64() * 1000.0,
+                e
+            );
         }
     }
 
@@ -40,20 +54,34 @@ async fn main() {
     let start_time = Instant::now();
     let async_capture = init_async().await.expect("异步初始化捕获失败");
     let init_duration = start_time.elapsed();
-    println!("异步捕获模块初始化成功！耗时: {:.3}ms", init_duration.as_secs_f64() * 1000.0);
+    println!(
+        "异步捕获模块初始化成功！耗时: {:.3}ms",
+        init_duration.as_secs_f64() * 1000.0
+    );
 
     println!("异步捕获区域: {:?}", region);
     let start_time = Instant::now();
     match async_capture.capture(region, None).await {
         Ok(capture_data) => {
             let capture_duration = start_time.elapsed();
-            println!("异步捕获成功！耗时: {:.3}ms", capture_duration.as_secs_f64() * 1000.0);
-            println!("宽度: {}, 高度: {}, 数据大小: {} 字节",
-                     capture_data.width, capture_data.height, capture_data.data.len());
-        },
+            println!(
+                "异步捕获成功！耗时: {:.3}ms",
+                capture_duration.as_secs_f64() * 1000.0
+            );
+            println!(
+                "宽度: {}, 高度: {}, 数据大小: {} 字节",
+                capture_data.width,
+                capture_data.height,
+                capture_data.data.len()
+            );
+        }
         Err(e) => {
             let capture_duration = start_time.elapsed();
-            eprintln!("异步捕获在 {:.3}ms 后失败: {}", capture_duration.as_secs_f64() * 1000.0, e);
+            eprintln!(
+                "异步捕获在 {:.3}ms 后失败: {}",
+                capture_duration.as_secs_f64() * 1000.0,
+                e
+            );
         }
     }
 
@@ -63,7 +91,10 @@ async fn main() {
     let start_time = Instant::now();
     capture_instance.init().expect("初始化捕获失败");
     let init_duration = start_time.elapsed();
-    println!("捕获实例已初始化！耗时: {:.3}ms", init_duration.as_secs_f64() * 1000.0);
+    println!(
+        "捕获实例已初始化！耗时: {:.3}ms",
+        init_duration.as_secs_f64() * 1000.0
+    );
 
     let region2 = CaptureRegion {
         x: 100,
@@ -76,13 +107,24 @@ async fn main() {
     match luo_capture::capture(&mut capture_instance, region2, None) {
         Ok(capture_data) => {
             let capture_duration = start_time.elapsed();
-            println!("便捷函数捕获成功！耗时: {:.3}ms", capture_duration.as_secs_f64() * 1000.0);
-            println!("宽度: {}, 高度: {}, 数据大小: {} 字节",
-                     capture_data.width, capture_data.height, capture_data.data.len());
-        },
+            println!(
+                "便捷函数捕获成功！耗时: {:.3}ms",
+                capture_duration.as_secs_f64() * 1000.0
+            );
+            println!(
+                "宽度: {}, 高度: {}, 数据大小: {} 字节",
+                capture_data.width,
+                capture_data.height,
+                capture_data.data.len()
+            );
+        }
         Err(e) => {
             let capture_duration = start_time.elapsed();
-            eprintln!("便捷函数捕获在 {:.3}ms 后失败: {}", capture_duration.as_secs_f64() * 1000.0, e);
+            eprintln!(
+                "便捷函数捕获在 {:.3}ms 后失败: {}",
+                capture_duration.as_secs_f64() * 1000.0,
+                e
+            );
         }
     }
 
@@ -100,8 +142,16 @@ async fn main() {
     match screen_capture.capture(region3, Some(save_path)) {
         Ok(capture_data) => {
             let capture_duration = start_time.elapsed();
-            println!("带PNG保存的捕获成功！耗时: {:.3}ms", capture_duration.as_secs_f64() * 1000.0);
-            println!("宽度: {}, 高度: {}, 数据大小: {} 字节", capture_data.width, capture_data.height, capture_data.data.len());
+            println!(
+                "带PNG保存的捕获成功！耗时: {:.3}ms",
+                capture_duration.as_secs_f64() * 1000.0
+            );
+            println!(
+                "宽度: {}, 高度: {}, 数据大小: {} 字节",
+                capture_data.width,
+                capture_data.height,
+                capture_data.data.len()
+            );
             println!("PNG已保存到: {}", save_path);
 
             // 检查文件是否存在
@@ -110,10 +160,14 @@ async fn main() {
             } else {
                 println!("✗ PNG文件未创建");
             }
-        },
+        }
         Err(e) => {
             let capture_duration = start_time.elapsed();
-            eprintln!("带PNG保存的捕获在 {:.3}ms 后失败: {}", capture_duration.as_secs_f64() * 1000.0, e);
+            eprintln!(
+                "带PNG保存的捕获在 {:.3}ms 后失败: {}",
+                capture_duration.as_secs_f64() * 1000.0,
+                e
+            );
         }
     }
 }
